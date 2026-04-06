@@ -1,0 +1,33 @@
+# Virtual Environments
+.venv/
+env/
+venv/
+ENV/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Kaggle & Environment configurations
+kaggle.json
+.env
+
+# Data & Models
+# Jangan commit file data (raw/processed) karena ukurannya sangat besar
+data/
+# Sama halnya dengan hasil model dan output
+saved_models/
+outputs/
+*.keras
+*.h5
+*.pkl
+
+# Jupyter/Colab Checkpoints
+.ipynb_checkpoints/
+
+# IDE & OS Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
