@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Batik Classifier — CNN Batik Nusantara</title>
+  <meta name="description" content="Klasifikasi motif batik nusantara menggunakan Convolutional Neural Network." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+<!-- ─── SIDEBAR ─────────────────────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sidebar-brand">
+    <div class="brand-icon">
+      <svg viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M8 16C8 11.6 11.6 8 16 8s8 3.6 8 8-3.6 8-8 8-8-3.6-8-8z" stroke="#fff" stroke-width="2"/><circle cx="16" cy="16" r="3" fill="#fff"/></svg>
+    </div>
+    <div>
+      <p class="brand-title">Batik CNN</p>
+      <p class="brand-sub">Nusantara Classifier</p>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <button class="nav-item active" id="nav-camera" data-tab="camera">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      <span>Kamera</span>
+    </button>
+    <button class="nav-item" id="nav-upload" data-tab="upload">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <span>Upload</span>
+    </button>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div id="model-status" class="model-badge loading">
+      <span class="badge-dot"></span>
+      <span class="badge-text">Memuat model...</span>
+    </div>
+    <button class="theme-toggle" id="theme-toggle" title="Toggle tema">
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+  </div>
+</aside>
+
+<!-- ─── MAIN CONTENT ─────────────────────────────────────────────────── -->
+<main class="main">
+
+  <!-- Header -->
+  <header class="page-header">
+    <div>
+      <h1 class="page-title">Klasifikasi Batik Nusantara</h1>
+      <p class="page-desc">Ambil foto atau upload gambar untuk mendeteksi motif batik</p>
+    </div>
+    <div id="class-count-badge" class="info-pill" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+      <span id="class-count-text">— kelas</span>
+    </div>
+  </header>
+
+  <!-- ── TAB: KAMERA ───────────────────────────────────────────────── -->
+  <div id="tab-camera" class="tab-content active">
+    <div class="card camera-card">
+      <div class="card-header">
+        <h2>Kamera Langsung</h2>
+        <div id="cam-status" class="status-dot red"></div>
+      </div>
+
+      <div class="video-wrap">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="canvas" style="display:none"></canvas>
+        <div id="video-placeholder" class="video-placeholder">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          <p>Kamera belum aktif</p>
+        </div>
+        <!-- Preview tangkapan -->
+        <div id="capture-preview" class="capture-overlay" style="display:none">
+          <img id="captured-img" src="" alt="Tangkapan" />
+          <button class="btn-overlay-close" id="btn-discard">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="action-row">
+        <button class="btn btn-outline" id="btn-start-cam">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+          Aktifkan Kamera
+        </button>
+        <button class="btn btn-secondary" id="btn-capture" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/></svg>
+          Ambil Foto
+        </button>
+        <button class="btn btn-primary" id="btn-analyze-cam" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Analisis
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB: UPLOAD ──────────────────────────────────────────────── -->
+  <div id="tab-upload" class="tab-content">
+    <div class="card">
+      <div class="card-header">
+        <h2>Upload Gambar</h2>
+      </div>
+
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.bmp,.webp" style="display:none" />
+        <div id="drop-idle" class="drop-content">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <p class="drop-title">Drag &amp; drop gambar di sini</p>
+          <p class="drop-sub">atau klik untuk memilih file</p>
+          <p class="drop-hint">JPG, PNG, BMP, WebP (maks. 16 MB)</p>
+        </div>
+        <div id="drop-preview" class="drop-preview-wrap" style="display:none">
+          <img id="drop-img" src="" alt="Preview" />
+          <div class="drop-file-info">
+            <p id="drop-filename" class="file-name">—</p>
+            <p id="drop-filesize" class="file-size">—</p>
+            <button class="btn-text-danger" id="btn-remove-file">Hapus gambar</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="action-row">
+        <button class="btn btn-primary" id="btn-analyze-upload" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Analisis
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── PANEL HASIL (ditampilkan setelah predict) ──────────────── -->
+  <div id="result-panel" class="result-panel" style="display:none">
+
+    <!-- Loading state -->
+    <div id="result-loading" class="result-loading" style="display:none">
+      <div class="spinner"></div>
+      <p>Sedang menganalisis gambar...</p>
+    </div>
+
+    <!-- Error state -->
+    <div id="result-error" class="result-error" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+      <div>
+        <p class="error-title">Terjadi Kesalahan</p>
+        <p id="error-msg" class="error-detail"></p>
+      </div>
+    </div>
+
+    <!-- Success state -->
+    <div id="result-success" style="display:none">
+      <div class="result-main">
+        <!-- Gambar yang dianalisis -->
+        <div class="result-image-wrap">
+          <img id="result-img" src="" alt="Gambar dianalisis" class="result-img" />
+          <div class="result-img-label">Gambar Dianalisis</div>
+        </div>
+
+        <!-- Prediksi utama -->
+        <div class="result-info">
+          <div class="result-label-small">Motif Terdeteksi</div>
+          <h2 id="result-class" class="result-class-name">—</h2>
+          <div class="confidence-section">
+            <div class="confidence-header">
+              <span>Kepercayaan (Confidence)</span>
+              <span id="result-conf-text" class="confidence-pct">—</span>
+            </div>
+            <div class="confidence-track">
+              <div id="result-conf-bar" class="confidence-bar" style="width:0%"></div>
+            </div>
+          </div>
+
+          <div class="result-meta">
+            <div class="meta-item">
+              <span class="meta-label">Peringkat</span>
+              <span class="meta-value">#1</span>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">Jumlah Kelas</span>
+              <span id="meta-total-class" class="meta-value">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabel top-N prediksi -->
+      <div class="top-predictions">
+        <h3 class="section-title">Distribusi Semua Prediksi (Top 10)</h3>
+        <div id="predictions-list" class="pred-list"></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ─── TOAST NOTIFIKASI ─────────────────────────────────────────────── -->
+<div id="toast" class="toast"></div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
