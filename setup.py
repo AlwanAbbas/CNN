@@ -71,28 +71,58 @@ else:
     venv_pip    = os.path.join(venv_dir, "bin", "pip")
 
 # ============================================================
-# Langkah 3: Install requirements.txt di .venv
+# Langkah 3: Memilih Versi TensorFlow & Install Requirements
 # ============================================================
+print("\n[3/5] Menginstall library & Konfigurasi TensorFlow...")
+print("      Pilih eksekusi TensorFlow yang ingin digunakan di `.venv`:")
+print("      1. TensorFlow Standard (Hanya CPU - Paling Stabil di Windows Baru)")
+print("      2. TensorFlow DirectML (Dukungan GPU Native Windows via DirectX)")
+pilihan_tf = input("      Masukkan pilihan (1/2) [Ketik enter untuk default: 1]: ").strip()
+
 req_path = os.path.join(BASE_DIR, "requirements.txt")
-print(f"\n[3/5] Menginstall library ke dalam .venv...")
 
 if not os.path.exists(req_path):
     print(f"      {ERR} requirements.txt tidak ditemukan di: {req_path}")
 else:
-    print(f"      {INF} Menjalankan: {venv_pip} install -r requirements.txt")
+    print(f"      {INF} Menyaring library dan memulai instalasi...")
     print("      " + "-" * 50)
     try:
+        # Baca requirements.txt
+        with open(req_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            
+        reqs_to_install = []
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            # Jika user milih opsi 2 (DirectML), jangan install tensorflow reguler
+            if pilihan_tf == "2" and line.lower().startswith("tensorflow"):
+                continue 
+            reqs_to_install.append(line)
+
+        # Install dependencies yang sudah disaring
         subprocess.run(
-            [venv_python, "-m", "pip", "install", "-r", req_path],
+            [venv_python, "-m", "pip", "install"] + reqs_to_install,
             check=True,
             text=True
         )
+        
+        # Jika memilih 2, install DirectML Plugin
+        if pilihan_tf == "2":
+            print(f"\n      {INF} Menginstall TensorFlow CPU + DirectML Plugin...")
+            subprocess.run(
+                [venv_python, "-m", "pip", "install", "tensorflow-cpu", "tensorflow-directml-plugin"],
+                check=True,
+                text=True
+            )
+            
         print("      " + "-" * 50)
         print(f"      {OK} Semua library berhasil diinstall ke .venv!")
     except subprocess.CalledProcessError as e:
         print("      " + "-" * 50)
-        print(f"      {ERR} Gagal install beberapa package. Coba jalankan manual:")
-        print(f"           {venv_pip} install -r requirements.txt")
+        print(f"      {ERR} Gagal install beberapa package. Anda bisa cek output error di atas.")
+        print(f"           Atau jalankan {venv_pip} install secara manual.")
 
 # ============================================================
 # Langkah 4: Buat file .env
