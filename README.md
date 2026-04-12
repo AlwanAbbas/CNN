@@ -1,15 +1,31 @@
 # CNN Batik Nusantara
 
-Sistem klasifikasi citra cerdas berbasis **Convolutional Neural Network (CNN)** untuk mendeteksi berbagai jenis motif batik dari seluruh Nusantara. Proyek ini dilengkapi dengan skrip otomatis untuk instalasi lokal, pipeline pelatihan yang modular, serta **Web App (Flask)** modern yang mendukung prediksi melalui foto upload maupun kamera secara langsung (*real-time*).
+Sistem klasifikasi citra cerdas berbasis **Transfer Learning (EfficientNetB0)** untuk mendeteksi **20 jenis motif batik** dari seluruh Nusantara. Proyek ini dilengkapi dengan skrip otomatis untuk instalasi lokal, pipeline pelatihan 2-fase yang modular, serta **Web App (Flask)** modern yang mendukung prediksi melalui foto upload maupun kamera secara langsung (*real-time*).
 
 ---
 
 ## 🎯 Fitur Utama
 
-- **Unduh Dataset Otomatis**: Skrip integrasi dengan Kaggle API untuk mengunduh dan mengekstrak dataset `hendryhb/batik-nusantara-batik-indonesia-dataset`.
-- **Pipeline Modular**: Terbagi rapi ke dalam beberapa modul: `config.py` (hyperparameters), `data_loader.py` (pemrosesan citra dari Keras), `model.py` (Arsitektur Model CNN), `train.py` (pelatihan), dan `evaluate.py` (evaluasi loss & akurasi).
+- **Transfer Learning (EfficientNetB0)**: Menggunakan model pretrained ImageNet dengan strategi pelatihan 2-fase (Feature Extraction → Fine-tuning) untuk performa optimal pada dataset kecil.
+- **Unduh Dataset Otomatis**: Integrasi dengan Kaggle API untuk mengunduh dan mengekstrak dataset `hendryhb/batik-nusantara-batik-indonesia-dataset`.
+- **Pipeline Modular**: Terbagi rapi ke dalam beberapa modul: `config.py` (hyperparameters), `data_loader.py` (preprocessing citra), `model.py` (arsitektur EfficientNetB0), `train.py` (pelatihan 2-fase), dan `evaluate.py` (evaluasi & visualisasi).
 - **Aplikasi Web Interaktif (Flask)**: Aplikasi web *dark-mode* minimalis yang memungkinkan Anda menggunakan Webcam atau Drag-and-Drop gambar.
 - **Dukungan Terminal (CLI)**: Utilitas inferensi *batch processing* langsung dari *command-line*.
+
+---
+
+## 📊 Performa Model
+
+| Versi | Arsitektur | Val Accuracy | Keterangan |
+|---|---|---|---|
+| v1 | CNN from Scratch | <20% | Underfitting parah |
+| v2 | MobileNetV2 + Transfer Learning | 56.67% | Baseline TL |
+| **v3 (terkini)** | **EfficientNetB0 + Label Smoothing** | **71.25%** | Best model |
+
+**Pelatihan terakhir (v3):**
+- Dataset: 640 gambar, 20 kelas (32 gambar/kelas)
+- Training split: 85% train / 15% val
+- Strategi: Fase 1 (Feature Extraction) + Fase 2 (Fine-tuning layer ≥80)
 
 ---
 
@@ -21,14 +37,19 @@ CNN_Batik_Nusantara/
 ├── setup.py                 # Skrip otomatis (buat .venv & install deps)
 ├── requirements.txt         # Daftar dependency package
 ├── src/
-│   ├── config.py            # Konfigurasi konstanta & variabel path 
-│   ├── data_loader.py       # Pemrosesan ImageDataGenerator & Kaggle API
-│   ├── model.py             # Definisi arsitektur model
-│   ├── train.py             # Skrip melatih model
-│   ├── evaluate.py          # Skrip mengevaluasi dan membuat plot metric
-│   ├── predict.py           # Skrip inferensi/pemuatan model
+│   ├── config.py            # Konfigurasi konstanta & hyperparameter
+│   ├── data_loader.py       # Preprocessing EfficientNet & Kaggle download
+│   ├── model.py             # Arsitektur EfficientNetB0 Transfer Learning
+│   ├── train.py             # Pipeline pelatihan 2-fase
+│   ├── evaluate.py          # Evaluasi & plot metric (accuracy, CM, report)
+│   ├── predict.py           # Modul inferensi (dipakai Flask & CLI)
 │   └── predict_cli.py       # Program CLI untuk prediksi di terminal
-├── templates/               
+├── data/
+│   └── raw/                 # Dataset Kaggle (di-download otomatis)
+├── saved_models/
+│   └── model_batik.keras    # Model terbaik hasil training (git-ignored)
+├── outputs/                 # Plot & laporan hasil evaluasi (git-ignored)
+├── templates/
 │   └── index.html           # UI Utama Flask
 └── static/
     ├── css/style.css        # Desain layout dan tema
@@ -37,82 +58,132 @@ CNN_Batik_Nusantara/
 
 ---
 
-## 🚀 Persiapan dan Instalasi (Local Environment)
+## 🚀 Persiapan dan Instalasi
 
-### 1. Prasyarat
-- **Python 3.10 atau 3.11** (⚠️ *Catatan: TensorFlow belum stabil untuk versi Windows pada Python 3.12+ / 3.14.*)
-- **Kaggle API Key**: Anda memerlukan akun Kaggle.
-  - Masuk ke profil Kaggle Anda → Settings → API → **Create New Token**.
-  - Letakkan file `kaggle.json` yang terunduh ke dalam folder proyek ini (sejajar dengan file `setup.py`).
+### Prasyarat
+- **Python 3.10 atau 3.11** (⚠️ TensorFlow belum stabil untuk Python 3.12+ di Windows)
+- **Kaggle API Key**: Butuh akun Kaggle.
+  - Masuk ke profil Kaggle → Settings → API → **Create New Token**
+  - Letakkan file `kaggle.json` ke dalam folder root proyek (sejajar `setup.py`)
 
-### 2. Jalankan Setup Otomatis
-Buka terminal OS Anda, jadikan root direktori ini sebagai *working directory*, lalu jalankan:
+---
+
+### 🆕 Clone Pertama Kali (Fresh Install)
 
 ```powershell
+# 1. Clone repo
+git clone https://github.com/<username>/CNN.git
+cd CNN
+
+# 2. Letakkan kaggle.json ke folder ini, lalu jalankan setup otomatis
 python setup.py
 ```
 
-Skrip ini akan secara otomatis:
-1. Membuat struktur folder data seperti `data/raw`, `saved_models`, `outputs`.
-2. Membuat **Virtual Environment** (`.venv`).
-3. Meng-install semua *library* pendukung termasuk TensorFlow, Flask, Scikit-learn.
-4. Membuat file konfigurasi tambahan `.env`.
+Skrip `setup.py` akan secara otomatis:
+1. Membuat folder `data/raw`, `saved_models`, `outputs`
+2. Membuat **Virtual Environment** (`.venv`)
+3. Meng-install semua library (TensorFlow, Flask, Scikit-learn, dll.)
+4. Membuat file `.env`
 
-### 3. Aktifkan Virtual Environment
-Setelah berhasil, selalu jalankan script dari dalam `.venv`.
-- **Windows**:
-  ```powershell
-  .venv\Scripts\activate
-  ```
-- **Linux / MacOS**:
-  ```bash
-  source .venv/bin/activate
-  ```
+```powershell
+# 3. Aktifkan virtual environment
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # Linux / macOS
+
+# 4. Latih model (akan unduh dataset otomatis dari Kaggle)
+python -m src.train
+
+# 5. Jalankan Web App
+python app.py
+```
+
+---
+
+### 🔄 Pull / Sync Jika Repo Sudah Pernah Di-Clone
+
+Jika kamu sudah pernah clone dan ingin sinkronisasi dengan perubahan terbaru:
+
+```powershell
+# 1. Simpan perubahan lokal (jika ada) agar tidak konflik
+git stash
+
+# 2. Tarik perubahan terbaru dari remote
+git pull origin main
+
+# 3. Pulihkan perubahan lokal (jika ada)
+git stash pop
+```
+
+**Setelah `git pull`, lakukan langkah berikut sesuai kebutuhan:**
+
+#### ✅ Jika ada perubahan di `requirements.txt` (dependency baru)
+```powershell
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+#### ✅ Jika ada perubahan di `src/model.py` atau `src/config.py` (arsitektur/hyperparameter berubah)
+> ⚠️ Model lama (`saved_models/model_batik.keras`) **tidak kompatibel** dengan arsitektur baru.
+> Wajib latih ulang dari awal.
+
+```powershell
+# Hapus model lama
+Remove-Item saved_models\model_batik.keras    # Windows
+# rm saved_models/model_batik.keras           # Linux / macOS
+
+# Latih ulang
+python -m src.train
+```
+
+#### ✅ Jika tidak ada perubahan arsitektur (hanya update UI / README / evaluate)
+Tidak perlu training ulang. Langsung jalankan:
+```powershell
+python app.py           # Jalankan web app
+python -m src.evaluate  # Re-evaluasi model yang sudah ada
+```
 
 ---
 
 ## ⚙️ Cara Penggunaan
 
 ### 1. Melatih Model
-Jalankan file training untuk menginisiasi proses pengunduhan kelas dataset dari Kaggle (jika belum ada) dan melatih model.
-
 ```powershell
 python -m src.train
 ```
+Pipeline akan otomatis mengunduh dataset dari Kaggle (jika belum ada) dan melatih model 2 fase (Feature Extraction → Fine-tuning).
 
 ### 2. Mengevaluasi Model
-Setelah selesai dilatih, lihat performa dataset (Loss, Akurasi, Classification Report & Confusion Matrix) dengan cara:
-
 ```powershell
 python -m src.evaluate
 ```
-*Hasil evaluasi (gambar diagram) akan diekspor ke dalam folder `outputs/`.*
+Hasil evaluasi (grafik akurasi, loss, confusion matrix, classification report) diekspor ke `outputs/`.
 
 ### 3. Menjalankan Web Aplikasi (Flask)
-Untuk membuka web aplikasi dan mencoba live-webcam atau mengunggah citra buatan Anda sendiri:
-
 ```powershell
 python app.py
 ```
-*Buka browser dan akses alamat:* `http://localhost:5000`
+Buka browser → `http://localhost:5000`
 
-### 4. Prediksi lewat Command-Line Interface (CLI)
-Jika Anda hanya ingin mengecek suatu gambar tanpa membuka UI Web, Anda juga dapat memanfaatkan CLI bawaan proyek:
-
+### 4. Prediksi via Command-Line (CLI)
 ```powershell
-# Memprediksi satu gambar
-python src/predict_cli.py path/ke/gambar1.jpg
+# Satu gambar
+python src/predict_cli.py path/ke/gambar.jpg
 
-# Memprediksi banyak gambar sekaligus
-python src/predict_cli.py img1.jpg img2.jpg
+# Banyak gambar sekaligus
+python src/predict_cli.py img1.jpg img2.jpg img3.jpg
 
-# Melihat *confidence* akurasi mendetail dan menyimpannya menjadi file JSON
-python src/predict_cli.py sasirangan.jpg --verbose --output hasil_prediksi.json
+# Dengan detail confidence & simpan ke JSON
+python src/predict_cli.py batik.jpg --verbose --output hasil.json
 ```
 
 ---
 
 ## 💡 Troubleshooting
 
-- **Error TensorFlow *(No matching distribution found)***: Itu artinya arsitektur Python lokal yang Anda jalankan terlalu canggih/baru (misal Python 3.14). Disarankan untuk men-downgrade Python, atau menggunakan *Google Colaboratory* khusus proses pelatihannya, di mana Anda tinggal mendownload model hasil perhitungannya saja.
-- **Kaggle Unauthorized / 403**: Pastikan `kaggle.json` diletakkan tepat di root proyek sebelum menjalankan `setup.py`.
+| Masalah | Solusi |
+|---|---|
+| `No matching distribution found` (TensorFlow) | Downgrade ke Python 3.10/3.11, atau gunakan Google Colab untuk training |
+| `Kaggle 401 / 403` | Pastikan `kaggle.json` ada di root proyek sebelum `setup.py` |
+| `FileNotFoundError: model_batik.keras` | Belum di-training. Jalankan `python -m src.train` terlebih dahulu |
+| Akurasi rendah setelah `git pull` | Arsitektur mungkin berubah. Hapus model lama dan latih ulang (lihat bagian Sync di atas) |
+| GPU tidak terdeteksi (Windows) | TF ≥2.11 tidak support GPU native Windows. Gunakan WSL2 atau TF-DirectML plugin |
