@@ -1,144 +1,141 @@
 """
 model.py
 --------
-Modul yang mendefinisikan arsitektur Convolutional Neural Network (CNN)
-untuk klasifikasi citra batik nusantara.
+Modul arsitektur model untuk klasifikasi batik nusantara.
 
-Arsitektur:
-    3 blok Conv2D + MaxPooling2D -> Flatten -> Dense -> Dropout -> Dense (Softmax)
+Menggunakan EfficientNetB0 pre-trained pada ImageNet sebagai feature extractor,
+dengan head classifier baru yang disesuaikan untuk dataset batik.
+
+Kenapa EfficientNetB0 vs MobileNetV2:
+    - Compound scaling: depth + width + resolution diseimbangkan secara optimal
+    - 5-10% lebih akurat pada dataset kecil dengan jumlah parameter serupa
+    - Lebih robust pada fitur tekstur kompleks seperti pola batik
+
+Strategi 2 Fase:
+    Fase 1 - Feature Extraction:
+        Base EfficientNetB0 di-freeze, hanya head yang dilatih.
+        Cocok untuk dataset kecil karena fitur ImageNet sudah umum.
+
+    Fase 2 - Fine-tuning:
+        Buka layer terakhir EfficientNetB0 (dari FINE_TUNE_AT ke atas),
+        latih dengan learning rate sangat kecil agar bobot pretrained
+        tidak rusak dan model beradaptasi pada tekstur batik.
 """
 
 import tensorflow as tf
-from tensorflow.keras import Sequential
+from tensorflow.keras import Model
 from tensorflow.keras.layers import (
-    Conv2D, MaxPooling2D, Flatten,
     Dense, Dropout, BatchNormalization,
-    Input
+    GlobalAveragePooling2D, Input
 )
+from tensorflow.keras.applications import EfficientNetB0
 
 
 def bangun_model(input_shape, num_classes):
     """
-    Membangun dan mengembalikan model CNN Sequential.
+    Membangun model Transfer Learning berbasis EfficientNetB0.
 
-    Arsitektur Model:
-        Blok 1: Conv2D(32) -> BatchNorm -> MaxPooling2D
-        Blok 2: Conv2D(64) -> BatchNorm -> MaxPooling2D
-        Blok 3: Conv2D(128) x2 -> BatchNorm -> MaxPooling2D
-        Head:   Flatten -> Dense(256, ReLU) -> Dropout(0.5) -> Dense(num_classes, Softmax)
+    Base EfficientNetB0 di-freeze (Fase 1: Feature Extraction).
+    Gunakan aktifkan_fine_tuning() untuk Fase 2.
 
     Args:
-        input_shape (tuple): Shape input gambar, misal (150, 150, 3).
-        num_classes (int): Jumlah kelas output (jumlah motif batik).
+        input_shape (tuple): Shape input gambar, harus (224, 224, 3).
+        num_classes (int)  : Jumlah kelas output (jumlah motif batik).
 
     Returns:
-        tf.keras.Sequential: Model CNN yang sudah dibangun (belum dikompilasi).
+        tf.keras.Model: Model yang sudah dibangun (belum dikompilasi).
     """
     print("\n" + "=" * 60)
-    print("[INFO] Membangun arsitektur CNN...")
-    print(f"[INFO] Input shape: {input_shape}")
-    print(f"[INFO] Jumlah kelas output: {num_classes}")
+    print("[INFO] Membangun model EfficientNetB0 Transfer Learning...")
+    print(f"[INFO] Input shape  : {input_shape}")
+    print(f"[INFO] Jumlah kelas : {num_classes}")
     print("=" * 60)
 
-    model = Sequential(name="CNN_Batik_Nusantara")
+    # -----------------------------------------------------------------------
+    # Base Model: EfficientNetB0 pretrained pada ImageNet
+    # include_top=False → buang classifier aslinya, ambil feature extractor
+    # EfficientNetB0 output: (7, 7, 1280) — sama dengan MobileNetV2
+    # -----------------------------------------------------------------------
+    base_model = EfficientNetB0(
+        input_shape=input_shape,
+        include_top=False,
+        weights='imagenet'
+    )
+
+    # Fase 1: freeze semua layer base agar bobot ImageNet tidak berubah
+    base_model.trainable = False
+    print(f"[INFO] Base EfficientNetB0: {len(base_model.layers)} layer (semua di-freeze)")
 
     # -----------------------------------------------------------------------
-    # Input Layer
+    # Head Classifier
     # -----------------------------------------------------------------------
-    model.add(Input(shape=input_shape))
+    inputs = Input(shape=input_shape)
 
-    # -----------------------------------------------------------------------
-    # Blok Konvolusi 1
-    # Ekstraksi fitur dasar (tepi, tekstur sederhana)
-    # -----------------------------------------------------------------------
-    model.add(Conv2D(
-        filters=32,
-        kernel_size=(3, 3),
-        padding='same',
-        activation='relu',
-        name='conv1_1'
-    ))
-    model.add(BatchNormalization(name='bn1'))       # Normalisasi batch untuk stabilitas
-    model.add(MaxPooling2D(
-        pool_size=(2, 2),
-        strides=(2, 2),
-        name='pool1'
-    ))
+    # Lewatkan melalui base — training=False agar BatchNorm di base
+    # selalu berjalan dalam mode inference (penting saat base di-freeze)
+    x = base_model(inputs, training=False)
 
-    # -----------------------------------------------------------------------
-    # Blok Konvolusi 2
-    # Ekstraksi fitur menengah (pola geometris batik)
-    # -----------------------------------------------------------------------
-    model.add(Conv2D(
-        filters=64,
-        kernel_size=(3, 3),
-        padding='same',
-        activation='relu',
-        name='conv2_1'
-    ))
-    model.add(BatchNormalization(name='bn2'))
-    model.add(MaxPooling2D(
-        pool_size=(2, 2),
-        strides=(2, 2),
-        name='pool2'
-    ))
+    x = GlobalAveragePooling2D(name='gap')(x)  # (batch, 1280) dari EfficientNetB0
 
-    # -----------------------------------------------------------------------
-    # Blok Konvolusi 3
-    # Ekstraksi fitur kompleks (motif batik spesifik)
-    # Dua layer Conv2D berturutan untuk kapasitas representasi lebih tinggi
-    # -----------------------------------------------------------------------
-    model.add(Conv2D(
-        filters=128,
-        kernel_size=(3, 3),
-        padding='same',
-        activation='relu',
-        name='conv3_1'
-    ))
-    model.add(Conv2D(
-        filters=128,
-        kernel_size=(3, 3),
-        padding='same',
-        activation='relu',
-        name='conv3_2'
-    ))
-    model.add(BatchNormalization(name='bn3'))
-    model.add(MaxPooling2D(
-        pool_size=(2, 2),
-        strides=(2, 2),
-        name='pool3'
-    ))
+    x = Dense(256, name='dense1')(x)
+    x = BatchNormalization(name='bn_head')(x)
+    x = tf.keras.layers.Activation('relu', name='relu_head')(x)
+    x = Dropout(0.5, name='dropout1')(x)
 
-    # -----------------------------------------------------------------------
-    # Fully Connected Layers (Head Classifier)
-    # -----------------------------------------------------------------------
-    model.add(Flatten(name='flatten'))              # Ratakan tensor 3D ke 1D
+    outputs = Dense(num_classes, activation='softmax', name='output')(x)
 
-    model.add(Dense(
-        units=256,
-        activation='relu',
-        name='dense1'
-    ))
-    model.add(Dropout(
-        rate=0.5,                                   # Matikan 50% neuron secara acak
-        name='dropout1'
-    ))
-
-    # -----------------------------------------------------------------------
-    # Output Layer
-    # Jumlah neuron = jumlah kelas, aktivasi Softmax untuk probabilitas
-    # -----------------------------------------------------------------------
-    model.add(Dense(
-        units=num_classes,
-        activation='softmax',
-        name='output'
-    ))
-
-    # Tampilkan ringkasan arsitektur model
+    model = Model(inputs, outputs, name='EfficientNetB0_Batik')
     model.summary()
 
     return model
 
 
-# Alias bahasa Inggris untuk kompatibilitas
+def aktifkan_fine_tuning(model, fine_tune_at=80):
+    """
+    Mengaktifkan fine-tuning dengan membuka layer EfficientNetB0
+    dari indeks `fine_tune_at` ke atas.
+
+    Panggil setelah Fase 1 selesai. Kompilasi ulang model dengan
+    FINE_TUNE_LR sebelum melanjutkan training.
+
+    Args:
+        model (tf.keras.Model): Model yang sudah dilatih di Fase 1.
+        fine_tune_at (int)    : Indeks layer mulai dibuka (default 80).
+
+    Returns:
+        int: Jumlah layer yang dibuka untuk fine-tuning.
+    """
+    # Temukan base_model (layer pertama yang merupakan EfficientNetB0)
+    base_model = None
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.Model):
+            base_model = layer
+            break
+
+    if base_model is None:
+        raise ValueError("Tidak menemukan base model di dalam model.")
+
+    # Buka trainable untuk seluruh base dulu
+    base_model.trainable = True
+
+    # Freeze layer sebelum fine_tune_at
+    for layer in base_model.layers[:fine_tune_at]:
+        layer.trainable = False
+
+    # Pastikan BatchNorm di blok yang di-freeze tetap inference mode
+    for layer in base_model.layers[:fine_tune_at]:
+        if isinstance(layer, tf.keras.layers.BatchNormalization):
+            layer.trainable = False
+
+    jumlah_bisa_latih = sum(
+        1 for l in base_model.layers if l.trainable
+    )
+    print(f"[INFO] Fine-tuning: membuka {jumlah_bisa_latih} layer "
+          f"(dari layer ke-{fine_tune_at} sampai akhir)")
+
+    return jumlah_bisa_latih
+
+
+# Alias Inggris untuk kompatibilitas
 build_model = bangun_model
+enable_fine_tuning = aktifkan_fine_tuning

@@ -1,15 +1,23 @@
 """
 data_loader.py
 --------------
-Modul untuk mengunduh dataset dari Kaggle, mengekstrak arsip,
-dan mempersiapkan data generator untuk pelatihan dan validasi.
+Modul untuk mengunduh dataset dari Kaggle dan mempersiapkan
+data generator untuk pelatihan dan validasi.
+
+Perubahan dari versi sebelumnya:
+    - Preprocessing gambar menggunakan mobilenet_v2.preprocess_input
+      (normalisasi ke [-1, 1]) agar kompatibel dengan bobot ImageNet.
+    - Augmentasi lebih agresif untuk dataset yang sangat kecil:
+      * brightness_range, channel_shift_range ditambahkan
+      * vertical_flip ditambahkan (batik sering simetris)
 """
 
 import os
 import subprocess
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
 
-# Impor konfigurasi dari modul config
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.applications.efficientnet import preprocess_input  # EfficientNetB0
+
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.config import (
@@ -21,12 +29,8 @@ from src.config import (
 
 def unduh_dataset():
     """
-    Mengunduh dataset dari Kaggle menggunakan Kaggle CLI,
-    lalu mengekstrak file .zip ke direktori data/raw.
-
-    Prasyarat:
-        - File kaggle.json sudah dikonfigurasi di ~/.kaggle/kaggle.json
-        - Library 'kaggle' sudah terinstal
+    Mengunduh dataset dari Kaggle menggunakan Kaggle CLI.
+    Skip download jika data sudah ada di data/raw.
 
     Returns:
         str: Path direktori dataset yang sudah terekstrak.
@@ -36,71 +40,62 @@ def unduh_dataset():
     print(f"[INFO] Dataset: {KAGGLE_DATASET}")
     print("=" * 60)
 
-    # Buat direktori tujuan jika belum ada
     os.makedirs(RAW_DIR, exist_ok=True)
     os.makedirs(PROCESSED_DIR, exist_ok=True)
 
-    # -----------------------------------------------------------------------
-    # Guard: cek apakah dataset sudah ada, skip download jika sudah ada
-    # Ini mencegah re-download berulang saat evaluate.py dipanggil
-    # -----------------------------------------------------------------------
+    # Guard: skip jika sudah ada
     direktori_terdeteksi = _temukan_direktori_dataset(RAW_DIR)
     isi_raw = os.listdir(RAW_DIR) if os.path.exists(RAW_DIR) else []
-    if isi_raw:  # Sudah ada file/folder di data/raw
+    if isi_raw:
         print(f"[INFO] Dataset sudah ada di: {direktori_terdeteksi} — melewati download.")
         return direktori_terdeteksi
 
-    # Perintah untuk mengunduh dataset menggunakan Kaggle API
     perintah_unduh = [
         "kaggle", "datasets", "download",
         "-d", KAGGLE_DATASET,
-        "-p", RAW_DIR,      # Simpan .zip ke folder data/raw
-        "--unzip"            # Langsung ekstrak setelah unduhan selesai
+        "-p", RAW_DIR,
+        "--unzip"
     ]
 
-    print(f"[INFO] Menjalankan perintah: {' '.join(perintah_unduh)}")
-
+    print(f"[INFO] Menjalankan: {' '.join(perintah_unduh)}")
     try:
         hasil = subprocess.run(
-            perintah_unduh,
-            check=True,
-            capture_output=True,
-            text=True
+            perintah_unduh, check=True, capture_output=True, text=True
         )
-        print(f"[SUKSES] Output: {hasil.stdout}")
+        print(f"[SUKSES] {hasil.stdout}")
     except subprocess.CalledProcessError as e:
         print(f"[ERROR] Gagal mengunduh dataset: {e.stderr}")
         raise
 
-    # Temukan direktori dataset yang sudah terekstrak
     return _temukan_direktori_dataset(RAW_DIR)
 
 
 def _temukan_direktori_dataset(direktori_awal):
     """
-    Fungsi internal untuk mencari direktori utama dataset
-    yang berisi subdirektori kelas gambar.
+    Cari direktori utama dataset (berisi folder-folder kelas).
+
+    Prioritas 1: folder bernama 'train' dengan subdirektori kelas.
+    Prioritas 2: folder dengan subdirektori terbanyak.
 
     Args:
-        direktori_awal (str): Direktori tempat memulai pencarian.
+        direktori_awal (str): Titik awal pencarian.
 
     Returns:
-        str: Path direktori yang berisi folder-folder kelas gambar.
+        str: Path direktori yang berisi subfolder kelas gambar.
     """
     print(f"\n[INFO] Mencari struktur dataset di: {direktori_awal}")
 
-    # 1. Prioritas Pertama: Cari folder dengan nama "train" yang memiliki kelas
+    # Prioritas 1: folder 'train'
     for root, dirs, files in os.walk(direktori_awal):
         if os.path.basename(root).lower() == "train":
             subdirs = [d for d in dirs if os.path.isdir(os.path.join(root, d))]
             if len(subdirs) > 1:
-                print(f"[INFO] Menggunakan folder 'train' dengan {len(subdirs)} kelas di: {root}")
+                print(f"[INFO] Folder 'train' ditemukan dengan {len(subdirs)} kelas: {root}")
                 return root
 
-    # 2. Prioritas Kedua: Cari folder yang memiliki subdirektori terbanyak
+    # Prioritas 2: folder dengan kelas terbanyak
     max_subdirs = 0
     best_root = direktori_awal
-    
     for root, dirs, files in os.walk(direktori_awal):
         subdirs = [d for d in dirs if os.path.isdir(os.path.join(root, d))]
         if len(subdirs) > max_subdirs:
@@ -108,100 +103,102 @@ def _temukan_direktori_dataset(direktori_awal):
             best_root = root
 
     if max_subdirs > 1:
-        print(f"[INFO] Menggunakan folder dengan kelas terbanyak ({max_subdirs} kelas) di: {best_root}")
+        print(f"[INFO] Menggunakan folder dengan {max_subdirs} kelas: {best_root}")
         return best_root
 
-    # Fallback ke direktori awal jika tidak ditemukan struktur yang sesuai
     print(f"[PERINGATAN] Struktur kelas tidak ditemukan, menggunakan: {direktori_awal}")
     return direktori_awal
 
 
 def dapatkan_data_generators(direktori_dataset=None):
     """
-    Membuat data generator untuk training dan validasi.
+    Membuat ImageDataGenerator untuk training dan validasi.
 
-    Data dibagi 80% Training dan 20% Validation.
-    Training generator dilengkapi dengan augmentasi data.
-    Validation generator hanya melakukan normalisasi.
+    Preprocessing: mobilenet_v2.preprocess_input → rentang [-1, 1]
+    (wajib agar kompatibel dengan bobot MobileNetV2 pretrained ImageNet).
+
+    Augmentasi training (lebih agresif untuk dataset kecil):
+        - Rotasi ±30°
+        - Shift horizontal/vertikal 25%
+        - Shear 20%
+        - Zoom 20%
+        - Flip horizontal & vertikal
+        - Perubahan brightness [0.7–1.3]
+        - Channel shift ±20
 
     Args:
-        direktori_dataset (str, optional): Path ke direktori dataset.
-            Jika None, fungsi akan mencari otomatis di RAW_DIR.
+        direktori_dataset (str, optional): Path direktori dataset.
 
     Returns:
         tuple: (train_generator, val_generator, num_classes, class_names)
-            - train_generator: Generator data training
-            - val_generator: Generator data validasi
-            - num_classes (int): Jumlah kelas yang terdeteksi
-            - class_names (list): Daftar nama kelas
     """
-    # Cari direktori dataset jika tidak disediakan
     if direktori_dataset is None:
         direktori_dataset = _temukan_direktori_dataset(RAW_DIR)
 
     print("\n" + "=" * 60)
-    print("[INFO] Mempersiapkan Data Generator...")
-    print(f"[INFO] Direktori dataset: {direktori_dataset}")
-    print(f"[INFO] Ukuran gambar: {IMG_HEIGHT}x{IMG_WIDTH}")
-    print(f"[INFO] Batch size: {BATCH_SIZE}")
-    print(f"[INFO] Split validasi: {VALIDATION_SPLIT * 100:.0f}%")
+    print("[INFO] Mempersiapkan Data Generator (MobileNetV2 preprocessing)...")
+    print(f"[INFO] Direktori dataset : {direktori_dataset}")
+    print(f"[INFO] Ukuran gambar     : {IMG_HEIGHT}×{IMG_WIDTH}")
+    print(f"[INFO] Batch size        : {BATCH_SIZE}")
+    print(f"[INFO] Split validasi    : {int(VALIDATION_SPLIT*100)}%")
     print("=" * 60)
 
     # -----------------------------------------------------------------------
-    # ImageDataGenerator untuk Training
-    # Dilengkapi augmentasi untuk meningkatkan generalisasi model
+    # Generator Training — augmentasi agresif untuk dataset kecil
+    # preprocess_input MobileNetV2 menggantikan rescale=1/255
     # -----------------------------------------------------------------------
     train_datagen = ImageDataGenerator(
-        rescale=1.0 / 255,           # Normalisasi piksel ke rentang [0, 1]
-        rotation_range=20,             # Rotasi acak hingga 20 derajat
-        width_shift_range=0.2,         # Geser horizontal hingga 20%
-        height_shift_range=0.2,        # Geser vertikal hingga 20%
-        shear_range=0.15,              # Transformasi shear
-        zoom_range=0.15,               # Zoom acak hingga 15%
-        horizontal_flip=True,          # Flip horizontal acak
-        fill_mode='nearest',           # Isi piksel baru dengan tetangga terdekat
-        validation_split=VALIDATION_SPLIT  # Proporsi data validasi
-    )
-
-    # -----------------------------------------------------------------------
-    # ImageDataGenerator untuk Validasi
-    # Hanya normalisasi, tanpa augmentasi agar evaluasi akurat
-    # -----------------------------------------------------------------------
-    val_datagen = ImageDataGenerator(
-        rescale=1.0 / 255,            # Normalisasi piksel ke rentang [0, 1]
+        preprocessing_function=preprocess_input,  # EfficientNet normalisasi
+        rotation_range=30,
+        width_shift_range=0.25,
+        height_shift_range=0.25,
+        shear_range=0.20,
+        zoom_range=0.20,
+        horizontal_flip=True,
+        vertical_flip=True,           # Batik sering memiliki simetri vertikal
+        brightness_range=[0.8, 1.2],  # Dikurangi agar warna batik tidak terlalu distorsi
+        channel_shift_range=10.0,     # Dikurangi dari 20 → 10 untuk jaga karakteristik warna
+        fill_mode='nearest',
         validation_split=VALIDATION_SPLIT
     )
 
     # -----------------------------------------------------------------------
-    # Buat generator dari direktori
+    # Generator Validasi — hanya preprocessing, tanpa augmentasi
+    # -----------------------------------------------------------------------
+    val_datagen = ImageDataGenerator(
+        preprocessing_function=preprocess_input,  # EfficientNet normalisasi
+        validation_split=VALIDATION_SPLIT
+    )
+
+    # -----------------------------------------------------------------------
+    # Flow dari direktori
     # -----------------------------------------------------------------------
     train_generator = train_datagen.flow_from_directory(
         direktori_dataset,
         target_size=(IMG_HEIGHT, IMG_WIDTH),
         batch_size=BATCH_SIZE,
-        class_mode='categorical',      # One-hot encoding untuk multi-kelas
-        subset='training',             # Gunakan 80% untuk training
+        class_mode='categorical',
+        subset='training',
         seed=RANDOM_SEED,
-        shuffle=True                   # Acak urutan data setiap epoch
+        shuffle=True
     )
 
     val_generator = val_datagen.flow_from_directory(
         direktori_dataset,
         target_size=(IMG_HEIGHT, IMG_WIDTH),
         batch_size=BATCH_SIZE,
-        class_mode='categorical',      # One-hot encoding untuk multi-kelas
-        subset='validation',           # Gunakan 20% untuk validasi
+        class_mode='categorical',
+        subset='validation',
         seed=RANDOM_SEED,
-        shuffle=False                  # Jangan acak agar evaluasi konsisten
+        shuffle=False
     )
 
-    # Dapatkan informasi kelas
-    num_classes = len(train_generator.class_indices)
-    class_names = list(train_generator.class_indices.keys())
+    num_classes  = len(train_generator.class_indices)
+    class_names  = list(train_generator.class_indices.keys())
 
-    print(f"\n[INFO] Jumlah kelas terdeteksi: {num_classes}")
-    print(f"[INFO] Daftar kelas: {class_names}")
-    print(f"[INFO] Total sampel training: {train_generator.samples}")
-    print(f"[INFO] Total sampel validasi: {val_generator.samples}")
+    print(f"\n[INFO] Kelas terdeteksi  : {num_classes}")
+    print(f"[INFO] Daftar kelas      : {class_names}")
+    print(f"[INFO] Sampel training   : {train_generator.samples}")
+    print(f"[INFO] Sampel validasi   : {val_generator.samples}")
 
     return train_generator, val_generator, num_classes, class_names

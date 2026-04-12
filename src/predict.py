@@ -99,10 +99,14 @@ def prediksi_gambar(img_bytes):
 
     model, class_names = muat_model_predict()
 
-    # Preprocessing gambar
+    from tensorflow.keras.applications.efficientnet import preprocess_input
+
+    # Preprocessing gambar — wajib pakai EfficientNet preprocess_input agar
+    # sesuai dengan normalisasi saat training
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     img = img.resize((IMG_WIDTH, IMG_HEIGHT))
-    arr = np.array(img, dtype=np.float32) / 255.0   # Normalisasi [0, 1]
+    arr = np.array(img, dtype=np.float32)
+    arr = preprocess_input(arr)                      # Normalisasi EfficientNet
     arr = np.expand_dims(arr, axis=0)                # Shape: (1, H, W, 3)
 
     # Inferensi
